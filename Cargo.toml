@@ -12,3 +12,7 @@ erased-serde = { version = "*", optional = true }
 [features]
 std = []
 serde_interop = ["std", "serde", "erased-serde"]
+
+[dev-dependencies]
+serde_test = "*"
+serde_json = "*"

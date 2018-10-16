@@ -38,35 +38,21 @@ mod imp {
     use serde::Serializer as SerdeSerializer;
 
     #[doc(hidden)]
-    pub trait SerializePrivate {
-        fn to_erased(&self) -> &(dyn erased_serde::Serialize + Send + Sync);
-    }
-
-    impl<T> Serialize for T
+    pub trait SerializePrivate: erased_serde::Serialize {}
+ 
+    impl<T: ?Sized> Serialize for T
     where
-        T: serde::Serialize + Send + Sync,
+        T: serde::Serialize,
     {
         fn serialize(&self, serializer: &mut dyn Serializer) {
-            serializer.serialize_serde(self)
+            let _ = serde::Serialize::serialize(self, SerdeBridge(serializer));
         }
     }
 
-    impl<T> SerializePrivate for T
+    impl<T: ?Sized> SerializePrivate for T
     where
-        T: serde::Serialize + Send + Sync,
+        T: serde::Serialize,
     {
-        fn to_erased(&self) -> &(dyn erased_serde::Serialize + Send + Sync) {
-            self
-        }
-    }
-
-    impl<'a> dyn Serializer + 'a {
-        fn serialize_serde<T>(&mut self, value: T)
-        where
-            T: serde::Serialize,
-        {
-            let _ = value.serialize(SerdeBridge(self));
-        }
     }
 
     impl<'a> serde::Serialize for dyn Serialize + 'a {
@@ -74,7 +60,7 @@ mod imp {
         where
             S: serde::Serializer,
         {
-            serde::Serialize::serialize(self.to_erased(), serializer)
+            erased_serde::serialize(self, serializer)
         }
     }
 
@@ -300,6 +286,20 @@ mod imp {
         }
     }
 
+    impl<'a, T: ?Sized> Serialize for &'a T
+    where
+        T: Serialize,
+    {
+        fn serialize(&self, serializer: &mut dyn Serializer) {
+            (**self).serialize(serializer)
+        }
+    }
+
+    impl<'a, T: ?Sized> SerializePrivate for &'a T
+    where
+        T: Serialize,
+    {}
+
     ser_primitive!(u8, fn serialize(&self, serializer: &mut dyn Serializer) {
         serializer.serialize_unsigned(*self as u64)
     });
@@ -351,5 +351,141 @@ mod imp {
     ser_primitive!(Vec<u8>, fn serialize(&self, serializer: &mut dyn Serializer) {
         serializer.serialize_bytes(&*self)
     });
+}
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn impl_serialize() {
+        fn is_serialize<T: Serialize + ?Sized>() {}
+
+        macro_rules! assert_is_serialize {
+            ($($ty:tt)*) => {
+                is_serialize::<$($ty)*>();
+                is_serialize::<&$($ty)*>();
+            }
+        }
+
+        assert_is_serialize!(u8);
+        assert_is_serialize!(u16);
+        assert_is_serialize!(u32);
+        assert_is_serialize!(u64);
+
+        assert_is_serialize!(i8);
+        assert_is_serialize!(i16);
+        assert_is_serialize!(i32);
+        assert_is_serialize!(i64);
+
+        assert_is_serialize!(f32);
+        assert_is_serialize!(f64);
+
+        assert_is_serialize!(bool);
+
+        assert_is_serialize!(char);
+        assert_is_serialize!(str);
+        #[cfg(feature = "std")]
+        assert_is_serialize!(String);
+
+        assert_is_serialize!([u8]);
+        #[cfg(feature = "std")]
+        assert_is_serialize!(Vec<u8>);
+    }
+
+    #[cfg(not(feature = "serde_interop"))]
+    mod imp {
+        use super::*;
+        
+        #[derive(PartialEq, Debug)]
+        enum Token<'a> {
+            I64(i64),
+            U64(u64),
+            F64(f64),
+            Bool(bool),
+            Char(char),
+            Str(&'a str),
+            Bytes(&'a [u8]),
+        }
+
+        // `&dyn ser::Serialize` should impl `serde::Serialize`
+        fn assert_serialize(v: &dyn Serialize, token: Token) {
+            struct TestSerializer<'a>(Token<'a>);
+
+            impl<'a> Serializer for TestSerializer<'a> {
+                fn serialize_signed(&mut self, v: i64) {
+                    assert_eq!(self.0, Token::I64(v));
+                }
+                
+                fn serialize_unsigned(&mut self, v: u64) {
+                    assert_eq!(self.0, Token::U64(v));
+                }
+
+                fn serialize_float(&mut self, v: f64) {
+                    assert_eq!(self.0, Token::F64(v));
+                }
+
+                fn serialize_bool(&mut self, v: bool) {
+                    assert_eq!(self.0, Token::Bool(v));
+                }
+
+                fn serialize_char(&mut self, v: char) {
+                    assert_eq!(self.0, Token::Char(v));
+                }
+
+                fn serialize_str(&mut self, v: &str) {
+                    assert_eq!(self.0, Token::Str(v));
+                }
+
+                fn serialize_bytes(&mut self, v: &[u8]) {
+                    assert_eq!(self.0, Token::Bytes(v));
+                }
+            }
+
+            v.serialize(&mut TestSerializer(token));
+        }
+
+        #[test]
+        fn test_simple() {
+            assert_serialize(&1u8, Token::U64(1u64));
+            assert_serialize(&true, Token::Bool(true));
+            assert_serialize(&"a string", Token::Str("a string"));
+        }
+    }
+
+    #[cfg(feature = "serde_interop")]
+    mod imp {
+        use super::*;
+        use serde_test::{Token, assert_ser_tokens};
+        use serde_json::json;
+
+        // `&dyn ser::Serialize` should impl `serde::Serialize`
+        fn assert_serialize(v: &dyn Serialize, tokens: &[Token]) {
+            assert_ser_tokens(&v, tokens);
+        }
+
+        #[test]
+        fn test_simple() {
+            assert_serialize(&1u8, &[Token::U8(1u8)]);
+            assert_serialize(&true, &[Token::Bool(true)]);
+            assert_serialize(&"a string", &[Token::Str("a string")]);
+        }
+
+        #[test]
+        fn test_complex() {
+            let v = json!({
+                "id": 123,
+                "name": "alice",
+            });
+
+            assert_serialize(&v, &[
+                Token::Map { len: Some(2) },
+                Token::Str("id"),
+                Token::U64(123),
+                Token::Str("name"),
+                Token::Str("alice"),
+                Token::MapEnd,
+            ]);
+        }
+    }
 }
