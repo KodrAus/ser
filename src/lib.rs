@@ -16,6 +16,11 @@ pub trait Serializer {
     fn serialize_str(&mut self, v: &str);
     /// Serialize a raw byte buffer.
     fn serialize_bytes(&mut self, v: &[u8]);
+
+    /// Handle an unsupported value.
+    fn unsupported(&mut self) {
+
+    }
 }
 
 /// A value that can be serialized.
@@ -129,7 +134,9 @@ mod imp {
         T: serde::Serialize,
     {
         fn serialize(&self, serializer: &mut dyn Serializer) {
-            let _ = serde::Serialize::serialize(self, SerdeBridge(serializer));
+            if let Err(Unsupported) = serde::Serialize::serialize(self, SerdeBridge(serializer)) {
+                serializer.unsupported();
+            }
         }
     }
 
