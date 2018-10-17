@@ -3,11 +3,11 @@
 /// A serializer for primitive values.
 pub trait Serializer {
     /// Serialize a signed integer.
-    fn serialize_signed(&mut self, v: i64);
+    fn serialize_i64(&mut self, v: i64);
     /// Serialize an unsigned integer.
-    fn serialize_unsigned(&mut self, v: u64);
+    fn serialize_u64(&mut self, v: u64);
     /// Serialize a floating point number.
-    fn serialize_float(&mut self, v: f64);
+    fn serialize_f64(&mut self, v: f64);
     /// Serialize a boolean.
     fn serialize_bool(&mut self, v: bool);
     /// Serialize a single character.
@@ -29,6 +29,90 @@ pub trait Serializer {
 pub trait Serialize: imp::SerializePrivate {
     /// Serialize the value with the given serializer.
     fn serialize(&self, serializer: &mut dyn Serializer);
+}
+
+#[cfg(not(feature = "serde_interop"))]
+mod imp {
+    use super::*;
+
+    #[doc(hidden)]
+    pub trait SerializePrivate {}
+
+    macro_rules! ser_primitive {
+        ($ty:ty, $($serialize:tt)*) => {
+            impl Serialize for $ty {
+                $($serialize)*
+            }
+
+            impl SerializePrivate for $ty {}
+        }
+    }
+
+    impl<'a, T: ?Sized> Serialize for &'a T
+    where
+        T: Serialize,
+    {
+        fn serialize(&self, serializer: &mut dyn Serializer) {
+            (**self).serialize(serializer)
+        }
+    }
+
+    impl<'a, T: ?Sized> SerializePrivate for &'a T
+    where
+        T: Serialize,
+    {}
+
+    ser_primitive!(u8, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_u64(*self as u64)
+    });
+    ser_primitive!(u16, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_u64(*self as u64)
+    });
+    ser_primitive!(u32, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_u64(*self as u64)
+    });
+    ser_primitive!(u64, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_u64(*self)
+    });
+    ser_primitive!(i8, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_i64(*self as i64)
+    });
+    ser_primitive!(i16, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_i64(*self as i64)
+    });
+    ser_primitive!(i32, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_i64(*self as i64)
+    });
+    ser_primitive!(i64, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_i64(*self)
+    });
+    ser_primitive!(f32, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_f64(*self as f64)
+    });
+    ser_primitive!(f64, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_f64(*self)
+    });
+    ser_primitive!(char, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_char(*self)
+    });
+    ser_primitive!(bool, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_bool(*self)
+    });
+    ser_primitive!(str, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_str(self)
+    });
+    ser_primitive!([u8], fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_bytes(self)
+    });
+
+    #[cfg(feature = "std")]
+    ser_primitive!(String, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_str(&*self)
+    });
+    #[cfg(feature = "std")]
+    ser_primitive!(Vec<u8>, fn serialize(&self, serializer: &mut dyn Serializer) {
+        serializer.serialize_bytes(&*self)
+    });
 }
 
 #[cfg(feature = "serde_interop")]
@@ -124,7 +208,7 @@ mod imp {
         }
 
         fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.serialize_signed(v))
+            Ok(self.0.serialize_i64(v))
         }
 
         fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
@@ -140,7 +224,7 @@ mod imp {
         }
 
         fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.serialize_unsigned(v))
+            Ok(self.0.serialize_u64(v))
         }
 
         fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
@@ -148,7 +232,7 @@ mod imp {
         }
 
         fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.serialize_float(v))
+            Ok(self.0.serialize_f64(v))
         }
 
         fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
@@ -269,96 +353,12 @@ mod imp {
     }
 }
 
-#[cfg(not(feature = "serde_interop"))]
-mod imp {
-    use super::*;
-
-    #[doc(hidden)]
-    pub trait SerializePrivate {}
-
-    macro_rules! ser_primitive {
-        ($ty:ty, $($serialize:tt)*) => {
-            impl Serialize for $ty {
-                $($serialize)*
-            }
-
-            impl SerializePrivate for $ty {}
-        }
-    }
-
-    impl<'a, T: ?Sized> Serialize for &'a T
-    where
-        T: Serialize,
-    {
-        fn serialize(&self, serializer: &mut dyn Serializer) {
-            (**self).serialize(serializer)
-        }
-    }
-
-    impl<'a, T: ?Sized> SerializePrivate for &'a T
-    where
-        T: Serialize,
-    {}
-
-    ser_primitive!(u8, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_unsigned(*self as u64)
-    });
-    ser_primitive!(u16, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_unsigned(*self as u64)
-    });
-    ser_primitive!(u32, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_unsigned(*self as u64)
-    });
-    ser_primitive!(u64, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_unsigned(*self)
-    });
-    ser_primitive!(i8, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_signed(*self as i64)
-    });
-    ser_primitive!(i16, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_signed(*self as i64)
-    });
-    ser_primitive!(i32, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_signed(*self as i64)
-    });
-    ser_primitive!(i64, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_signed(*self)
-    });
-    ser_primitive!(f32, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_float(*self as f64)
-    });
-    ser_primitive!(f64, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_float(*self)
-    });
-    ser_primitive!(char, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_char(*self)
-    });
-    ser_primitive!(bool, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_bool(*self)
-    });
-    ser_primitive!(str, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_str(self)
-    });
-    ser_primitive!([u8], fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_bytes(self)
-    });
-
-    #[cfg(feature = "std")]
-    ser_primitive!(String, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_str(&*self)
-    });
-    #[cfg(feature = "std")]
-    ser_primitive!(Vec<u8>, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_bytes(&*self)
-    });
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::*;
 
     #[test]
-    fn impl_serialize() {
+    fn types_implement_serialize() {
         fn is_serialize<T: Serialize + ?Sized>() {}
 
         macro_rules! assert_is_serialize {
@@ -393,69 +393,64 @@ mod tests {
         assert_is_serialize!(Vec<u8>);
     }
 
-    #[cfg(not(feature = "serde_interop"))]
-    mod imp {
-        use super::*;
-        
-        #[derive(PartialEq, Debug)]
-        enum Token<'a> {
-            I64(i64),
-            U64(u64),
-            F64(f64),
-            Bool(bool),
-            Char(char),
-            Str(&'a str),
-            Bytes(&'a [u8]),
-        }
+    #[derive(PartialEq, Debug)]
+    enum Token<'a> {
+        I64(i64),
+        U64(u64),
+        F64(f64),
+        Bool(bool),
+        Char(char),
+        Str(&'a str),
+        Bytes(&'a [u8]),
+    }
 
-        // `&dyn ser::Serialize` should impl `serde::Serialize`
-        fn assert_serialize(v: &dyn Serialize, token: Token) {
-            struct TestSerializer<'a>(Token<'a>);
+    // `&dyn ser::Serialize` should impl `serde::Serialize`
+    fn assert_serialize(v: &dyn Serialize, token: Token) {
+        struct TestSerializer<'a>(Token<'a>);
 
-            impl<'a> Serializer for TestSerializer<'a> {
-                fn serialize_signed(&mut self, v: i64) {
-                    assert_eq!(self.0, Token::I64(v));
-                }
-                
-                fn serialize_unsigned(&mut self, v: u64) {
-                    assert_eq!(self.0, Token::U64(v));
-                }
-
-                fn serialize_float(&mut self, v: f64) {
-                    assert_eq!(self.0, Token::F64(v));
-                }
-
-                fn serialize_bool(&mut self, v: bool) {
-                    assert_eq!(self.0, Token::Bool(v));
-                }
-
-                fn serialize_char(&mut self, v: char) {
-                    assert_eq!(self.0, Token::Char(v));
-                }
-
-                fn serialize_str(&mut self, v: &str) {
-                    assert_eq!(self.0, Token::Str(v));
-                }
-
-                fn serialize_bytes(&mut self, v: &[u8]) {
-                    assert_eq!(self.0, Token::Bytes(v));
-                }
+        impl<'a> Serializer for TestSerializer<'a> {
+            fn serialize_i64(&mut self, v: i64) {
+                assert_eq!(self.0, Token::I64(v));
+            }
+            
+            fn serialize_u64(&mut self, v: u64) {
+                assert_eq!(self.0, Token::U64(v));
             }
 
-            v.serialize(&mut TestSerializer(token));
+            fn serialize_f64(&mut self, v: f64) {
+                assert_eq!(self.0, Token::F64(v));
+            }
+
+            fn serialize_bool(&mut self, v: bool) {
+                assert_eq!(self.0, Token::Bool(v));
+            }
+
+            fn serialize_char(&mut self, v: char) {
+                assert_eq!(self.0, Token::Char(v));
+            }
+
+            fn serialize_str(&mut self, v: &str) {
+                assert_eq!(self.0, Token::Str(v));
+            }
+
+            fn serialize_bytes(&mut self, v: &[u8]) {
+                assert_eq!(self.0, Token::Bytes(v));
+            }
         }
 
-        #[test]
-        fn test_simple() {
-            assert_serialize(&1u8, Token::U64(1u64));
-            assert_serialize(&true, Token::Bool(true));
-            assert_serialize(&"a string", Token::Str("a string"));
-        }
+        v.serialize(&mut TestSerializer(token));
+    }
+
+    #[test]
+    fn serialize_simple() {
+        assert_serialize(&1u8, Token::U64(1u64));
+        assert_serialize(&true, Token::Bool(true));
+        assert_serialize(&"a string", Token::Str("a string"));
     }
 
     #[cfg(feature = "serde_interop")]
-    mod imp {
-        use super::*;
+    mod serde_interop {
+        use crate::*;
         use serde_test::{Token, assert_ser_tokens};
         use serde_json::json;
 
@@ -465,14 +460,14 @@ mod tests {
         }
 
         #[test]
-        fn test_simple() {
+        fn serialize_simple() {
             assert_serialize(&1u8, &[Token::U8(1u8)]);
             assert_serialize(&true, &[Token::Bool(true)]);
             assert_serialize(&"a string", &[Token::Str("a string")]);
         }
 
         #[test]
-        fn test_complex() {
+        fn serialize_complex() {
             let v = json!({
                 "id": 123,
                 "name": "alice",
