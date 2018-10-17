@@ -409,6 +409,7 @@ mod tests {
         Char(char),
         Str(&'a str),
         Bytes(&'a [u8]),
+        Unsupported,
     }
 
     // `&dyn ser::Serialize` should impl `serde::Serialize`
@@ -443,6 +444,10 @@ mod tests {
             fn serialize_bytes(&mut self, v: &[u8]) {
                 assert_eq!(self.0, Token::Bytes(v));
             }
+
+            fn unsupported(&mut self) {
+                assert_eq!(self.0, Token::Unsupported);
+            }
         }
 
         v.serialize(&mut TestSerializer(token));
@@ -453,6 +458,19 @@ mod tests {
         assert_serialize(&1u8, Token::U64(1u64));
         assert_serialize(&true, Token::Bool(true));
         assert_serialize(&"a string", Token::Str("a string"));
+    }
+
+    #[test]
+    #[cfg(feature = "serde_interop")]
+    fn serialize_unsupported() {
+        use serde_json::json;
+
+        let v = json!({
+            "id": 123,
+            "name": "alice",
+        });
+
+        assert_serialize(&v, Token::Unsupported);
     }
 
     #[cfg(feature = "serde_interop")]
