@@ -63,13 +63,18 @@ pub trait Visit: imp::VisitPrivate {
     fn visit(&self, visitor: &mut dyn Visitor);
 }
 
+/// This trait is a private implementation detail for testing.
+/// 
+/// All it does is make sure that our set of concrete types
+/// that implement `Visit` always implement the `Visit` trait,
+/// regardless of crate features and blanket implementations.
 trait EnsureVisit: Visit {}
 
 macro_rules! ensure_impl_visit {
     ($($ty:ty { $($serialize:tt)* })*) => {
         $(
-            #[cfg(feature = "serde_interop")]
             impl EnsureVisit for $ty {}
+            impl<'a> EnsureVisit for &'a $ty {}
 
             #[cfg(not(feature = "serde_interop"))]
             impl Visit for $ty {
