@@ -12,22 +12,22 @@ use self::std::fmt;
 pub trait Visitor {
     /// Visit a signed integer.
     fn visit_i64(&mut self, v: i64) {
-        self.visit_args(&format_args!("{:?}", v));
+        self.visit_fmt(&format_args!("{:?}", v));
     }
 
     /// Visit an unsigned integer.
     fn visit_u64(&mut self, v: u64) {
-        self.visit_args(&format_args!("{:?}", v));
+        self.visit_fmt(&format_args!("{:?}", v));
     }
 
     /// Visit a floating point number.
     fn visit_f64(&mut self, v: f64) {
-        self.visit_args(&format_args!("{:?}", v));
+        self.visit_fmt(&format_args!("{:?}", v));
     }
 
     /// Visit a boolean.
     fn visit_bool(&mut self, v: bool) {
-        self.visit_args(&format_args!("{:?}", v));
+        self.visit_fmt(&format_args!("{:?}", v));
     }
 
     /// Visit a single character.
@@ -38,16 +38,16 @@ pub trait Visitor {
 
     /// Visit a UTF8 string.
     fn visit_str(&mut self, v: &str) {
-        self.visit_args(&format_args!("{:?}", v));
+        self.visit_fmt(&format_args!("{:?}", v));
     }
 
     /// Visit a raw byte buffer.
     fn visit_bytes(&mut self, v: &[u8]) {
-        self.visit_args(&format_args!("{:?}", v));
+        self.visit_fmt(&format_args!("{:?}", v));
     }
 
     /// Visit standard arguments.
-    fn visit_args(&mut self, args: &fmt::Arguments);
+    fn visit_fmt(&mut self, args: &fmt::Arguments);
 }
 
 /// A value that can be serialized.
@@ -210,7 +210,7 @@ mod imp {
     {
         fn visit(&self, visitor: &mut dyn Visitor) {
             if let Err(Unsupported) = Serialize::serialize(self, SerdeBridge(visitor)) {
-                visitor.visit_args(&format_args!("{:?}", self));
+                visitor.visit_fmt(&format_args!("{:?}", self));
             }
         }
     }
@@ -326,7 +326,7 @@ mod imp {
         }
 
         fn collect_str<T: std::fmt::Display + ?Sized>(self, v: &T) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.visit_args(&format_args!("{}", v)))
+            Ok(self.0.visit_fmt(&format_args!("{}", v)))
         }
 
         fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
@@ -484,7 +484,7 @@ mod tests {
                 assert_eq!(self.0, Token::Bytes(v));
             }
 
-            fn visit_args(&mut self, v: &fmt::Arguments) {
+            fn visit_fmt(&mut self, v: &fmt::Arguments) {
                 use self::std::{str, ptr};
                 use self::fmt::Write;
 
@@ -531,8 +531,7 @@ mod tests {
                 }
 
                 let mut w = VisitArgs::new();
-                write!(&mut w, "{}", v).unwrap();
-
+                w.write_fmt(format_args!("{}", v)).unwrap();
                 assert_eq!(self.0, Token::Args(w.to_str().unwrap()));
             }
         }
