@@ -448,7 +448,7 @@ mod tests {
         Char(char),
         Str(&'a str),
         Bytes(&'a [u8]),
-        Args,
+        Args(&'a str),
     }
 
     // `&dyn ser::Serialize` should impl `Serialize`
@@ -484,8 +484,56 @@ mod tests {
                 assert_eq!(self.0, Token::Bytes(v));
             }
 
-            fn visit_args(&mut self, _: &fmt::Arguments) {
-                assert_eq!(self.0, Token::Args);
+            fn visit_args(&mut self, v: &fmt::Arguments) {
+                use self::std::{str, ptr};
+                use self::fmt::Write;
+
+                const LEN: usize = 128;
+
+                struct VisitArgs {
+                    buf: [u8; LEN],
+                    cursor: usize,
+                }
+
+                impl VisitArgs {
+                    fn new() -> Self {
+                        VisitArgs {
+                            buf: [0; LEN],
+                            cursor: 0,
+                        }
+                    }
+
+                    fn to_str(&self) -> Option<&str> {
+                        str::from_utf8(&self.buf[0..self.cursor]).ok()
+                    }
+                }
+
+                impl Write for VisitArgs {
+                    fn write_str(&mut self, s: &str) -> fmt::Result {
+                        let src = s.as_bytes();
+                        let next_cursor = self.cursor + src.len();
+
+                        if next_cursor > LEN {
+                            return Err(fmt::Error);
+                        }
+
+                        unsafe {
+                            let src_ptr = src.as_ptr();
+                            let dst_ptr = self.buf.as_mut_ptr().offset(self.cursor as isize);
+
+                            ptr::copy_nonoverlapping(src_ptr, dst_ptr, src.len());
+                        }
+
+                        self.cursor = next_cursor;
+
+                        Ok(())
+                    }
+                }
+
+                let mut w = VisitArgs::new();
+                write!(&mut w, "{}", v).unwrap();
+
+                assert_eq!(self.0, Token::Args(w.to_str().unwrap()));
             }
         }
 
@@ -501,7 +549,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "serde_interop")]
-    fn visit_unsupported_as_args() {
+    fn visit_unsupported_as_debug() {
         use serde_json::json;
 
         let v = json!({
@@ -509,7 +557,7 @@ mod tests {
             "name": "alice",
         });
 
-        assert_visit(&v, Token::Args);
+        assert_visit(&v, Token::Args(&format!("{:?}", v)));
     }
 
     #[cfg(feature = "serde_interop")]
