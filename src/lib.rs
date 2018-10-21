@@ -1,39 +1,66 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(not(feature = "std"))]
+extern crate core as std;
+
+#[cfg(feature = "std")]
+extern crate std;
+
+use self::std::fmt;
+
 /// A serializer for primitive values.
-pub trait Serializer {
-    /// Serialize a signed integer.
-    fn serialize_i64(&mut self, v: i64);
-    /// Serialize an unsigned integer.
-    fn serialize_u64(&mut self, v: u64);
-    /// Serialize a floating point number.
-    fn serialize_f64(&mut self, v: f64);
-    /// Serialize a boolean.
-    fn serialize_bool(&mut self, v: bool);
-    /// Serialize a single character.
-    fn serialize_char(&mut self, v: char);
-    /// Serialize a UTF8 string.
-    fn serialize_str(&mut self, v: &str);
-    /// Serialize a raw byte buffer.
-    fn serialize_bytes(&mut self, v: &[u8]);
-
-    /// Handle an unsupported value.
-    fn unsupported(&mut self) {
-
+pub trait Visitor {
+    /// Visit a signed integer.
+    fn visit_i64(&mut self, v: i64) {
+        self.visit_args(&format_args!("{:?}", v));
     }
+
+    /// Visit an unsigned integer.
+    fn visit_u64(&mut self, v: u64) {
+        self.visit_args(&format_args!("{:?}", v));
+    }
+
+    /// Visit a floating point number.
+    fn visit_f64(&mut self, v: f64) {
+        self.visit_args(&format_args!("{:?}", v));
+    }
+
+    /// Visit a boolean.
+    fn visit_bool(&mut self, v: bool) {
+        self.visit_args(&format_args!("{:?}", v));
+    }
+
+    /// Visit a single character.
+    fn visit_char(&mut self, v: char) {
+        let mut b = [0; 4];
+        self.visit_str(&*v.encode_utf8(&mut b));
+    }
+
+    /// Visit a UTF8 string.
+    fn visit_str(&mut self, v: &str) {
+        self.visit_args(&format_args!("{:?}", v));
+    }
+
+    /// Visit a raw byte buffer.
+    fn visit_bytes(&mut self, v: &[u8]) {
+        self.visit_args(&format_args!("{:?}", v));
+    }
+
+    /// Visit standard arguments.
+    fn visit_args(&mut self, args: &fmt::Arguments);
 }
 
 /// A value that can be serialized.
 /// 
-/// This type is expected to be used as a trait object, like `&dyn Serialize`
-/// instead of as a generic, like `T: Serialize`. It is only implemented for
+/// This type is expected to be used as a trait object, like `&dyn Visit`
+/// instead of as a generic, like `T: Visit`. It is only implemented for
 /// a selection of primitive types and cannot be implemented manually.
 /// 
 /// If the `serde_interop` feature is enabled, this type can be serialized
-/// using `serde` in addition to the simple `Serializer` from this crate.
-pub trait Serialize: imp::SerializePrivate {
-    /// Serialize the value with the given serializer.
-    fn serialize(&self, serializer: &mut dyn Serializer);
+/// using `serde` in addition to the simple `Visitor` from this crate.
+pub trait Visit: imp::VisitPrivate {
+    /// Visit the value with the given serializer.
+    fn visit(&self, visitor: &mut dyn Visitor);
 }
 
 #[cfg(not(feature = "serde_interop"))]
@@ -41,121 +68,168 @@ mod imp {
     use super::*;
 
     #[doc(hidden)]
-    pub trait SerializePrivate {}
+    pub trait VisitPrivate: fmt::Debug {}
 
-    macro_rules! ser_primitive {
-        ($ty:ty, $($serialize:tt)*) => {
-            impl Serialize for $ty {
-                $($serialize)*
+    macro_rules! visit_primitive {
+        ($($ty:ty: { $($serialize:tt)* })*) => {
+            $(
+                impl Visit for $ty {
+                    $($serialize)*
+                }
+
+                impl VisitPrivate for $ty {}
+            )*
+        }
+    }
+
+    visit_primitive!(
+        u8: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_u64(*self as u64)
             }
-
-            impl SerializePrivate for $ty {}
         }
-    }
 
-    impl<'a, T: ?Sized> Serialize for &'a T
+        u16: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_u64(*self as u64)
+            }
+        }
+
+        u32: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_u64(*self as u64)
+            }
+        }
+
+        u64: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_u64(*self)
+            }
+        }
+
+        i8: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_i64(*self as i64)
+            }
+        }
+
+        i16: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_i64(*self as i64)
+            }
+        }
+
+        i32: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_i64(*self as i64)
+            }
+        }
+
+        i64: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_i64(*self)
+            }
+        }
+
+        f32: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_f64(*self as f64)
+            }
+        }
+
+        f64: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_f64(*self)
+            }
+        }
+
+        char: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_char(*self)
+            }
+        }
+
+        bool: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_bool(*self)
+            }
+        }
+
+        str: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_str(self)
+            }
+        }
+
+        [u8]: {
+            fn visit(&self, visitor: &mut dyn Visitor) {
+                visitor.visit_bytes(self)
+            }
+        }
+    );
+
+    impl<'a, T: ?Sized> Visit for &'a T
     where
-        T: Serialize,
+        T: Visit,
     {
-        fn serialize(&self, serializer: &mut dyn Serializer) {
-            (**self).serialize(serializer)
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            (**self).visit(visitor)
         }
     }
 
-    impl<'a, T: ?Sized> SerializePrivate for &'a T
+    impl<'a, T: ?Sized> VisitPrivate for &'a T
     where
-        T: Serialize,
+        T: Visit,
     {}
 
-    ser_primitive!(u8, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_u64(*self as u64)
-    });
-    ser_primitive!(u16, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_u64(*self as u64)
-    });
-    ser_primitive!(u32, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_u64(*self as u64)
-    });
-    ser_primitive!(u64, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_u64(*self)
-    });
-    ser_primitive!(i8, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_i64(*self as i64)
-    });
-    ser_primitive!(i16, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_i64(*self as i64)
-    });
-    ser_primitive!(i32, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_i64(*self as i64)
-    });
-    ser_primitive!(i64, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_i64(*self)
-    });
-    ser_primitive!(f32, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_f64(*self as f64)
-    });
-    ser_primitive!(f64, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_f64(*self)
-    });
-    ser_primitive!(char, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_char(*self)
-    });
-    ser_primitive!(bool, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_bool(*self)
-    });
-    ser_primitive!(str, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_str(self)
-    });
-    ser_primitive!([u8], fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_bytes(self)
-    });
-
+    /*
     #[cfg(feature = "std")]
-    ser_primitive!(String, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_str(&*self)
+    visit_primitive!(String, fn visit(&self, visitor: &mut dyn Visitor) {
+        visitor.visit_str(&*self)
     });
     #[cfg(feature = "std")]
-    ser_primitive!(Vec<u8>, fn serialize(&self, serializer: &mut dyn Serializer) {
-        serializer.serialize_bytes(&*self)
+    visit_primitive!(Vec<u8>, fn visit(&self, visitor: &mut dyn Visitor) {
+        visitor.visit_bytes(&*self)
     });
+    */
 }
 
 #[cfg(feature = "serde_interop")]
 mod imp {
     use super::*;
 
-    use serde::Serializer as SerdeSerializer;
+    use serde::{Serializer, Serialize};
 
     #[doc(hidden)]
-    pub trait SerializePrivate: erased_serde::Serialize {}
+    pub trait VisitPrivate: erased_serde::Serialize + fmt::Debug {}
  
-    impl<T: ?Sized> Serialize for T
+    impl<T: ?Sized> Visit for T
     where
-        T: serde::Serialize,
+        T: Serialize + fmt::Debug,
     {
-        fn serialize(&self, serializer: &mut dyn Serializer) {
-            if let Err(Unsupported) = serde::Serialize::serialize(self, SerdeBridge(serializer)) {
-                serializer.unsupported();
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            if let Err(Unsupported) = Serialize::serialize(self, SerdeBridge(visitor)) {
+                visitor.visit_args(&format_args!("{:?}", self));
             }
         }
     }
 
-    impl<T: ?Sized> SerializePrivate for T
+    impl<T: ?Sized> VisitPrivate for T
     where
-        T: serde::Serialize,
+        T: Serialize + fmt::Debug,
     {
     }
 
-    impl<'a> serde::Serialize for dyn Serialize + 'a {
+    impl<'a> Serialize for dyn Visit + 'a {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
-            S: serde::Serializer,
+            S: Serializer,
         {
             erased_serde::serialize(self, serializer)
         }
     }
 
-    struct SerdeBridge<'a>(&'a mut dyn Serializer);
+    struct SerdeBridge<'a>(&'a mut dyn Visitor);
 
     #[derive(Debug)]
     struct Unsupported;
@@ -186,7 +260,7 @@ mod imp {
         }
     }
 
-    impl<'a> serde::Serializer for SerdeBridge<'a> {
+    impl<'a> Serializer for SerdeBridge<'a> {
         type Ok = ();
         type Error = Unsupported;
 
@@ -199,7 +273,7 @@ mod imp {
         type SerializeStructVariant = serde::ser::Impossible<Self::Ok, Self::Error>;
 
         fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.serialize_bool(v))
+            Ok(self.0.visit_bool(v))
         }
 
         fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
@@ -215,7 +289,7 @@ mod imp {
         }
 
         fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.serialize_i64(v))
+            Ok(self.0.visit_i64(v))
         }
 
         fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
@@ -231,7 +305,7 @@ mod imp {
         }
 
         fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.serialize_u64(v))
+            Ok(self.0.visit_u64(v))
         }
 
         fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
@@ -239,23 +313,23 @@ mod imp {
         }
 
         fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.serialize_f64(v))
+            Ok(self.0.visit_f64(v))
         }
 
         fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.serialize_char(v))
+            Ok(self.0.visit_char(v))
         }
 
         fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.serialize_str(v))
+            Ok(self.0.visit_str(v))
         }
 
-        fn collect_str<T: std::fmt::Display + ?Sized>(self, _v: &T) -> Result<Self::Ok, Self::Error> {
-            Err(Unsupported)
+        fn collect_str<T: std::fmt::Display + ?Sized>(self, v: &T) -> Result<Self::Ok, Self::Error> {
+            Ok(self.0.visit_args(&format_args!("{}", v)))
         }
 
         fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-            Ok(self.0.serialize_bytes(v))
+            Ok(self.0.visit_bytes(v))
         }
 
         fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
@@ -264,7 +338,7 @@ mod imp {
 
         fn serialize_some<T>(self, v: &T) -> Result<Self::Ok, Self::Error>
         where
-            T: ?Sized + serde::Serialize,
+            T: ?Sized + Serialize,
         {
             v.serialize(self)
         }
@@ -292,7 +366,7 @@ mod imp {
             _value: &T,
         ) -> Result<Self::Ok, Self::Error>
         where
-            T: ?Sized + serde::Serialize,
+            T: ?Sized + Serialize,
         {
             Err(Unsupported)
         }
@@ -305,7 +379,7 @@ mod imp {
             _value: &T,
         ) -> Result<Self::Ok, Self::Error>
         where
-            T: ?Sized + serde::Serialize,
+            T: ?Sized + Serialize,
         {
             Err(Unsupported)
         }
@@ -365,39 +439,39 @@ mod tests {
     use crate::*;
 
     #[test]
-    fn types_implement_serialize() {
-        fn is_serialize<T: Serialize + ?Sized>() {}
+    fn types_implement_visit() {
+        fn is_visit<T: Visit + ?Sized>() {}
 
-        macro_rules! assert_is_serialize {
+        macro_rules! assert_is_visit {
             ($($ty:tt)*) => {
-                is_serialize::<$($ty)*>();
-                is_serialize::<&$($ty)*>();
+                is_visit::<$($ty)*>();
+                is_visit::<&$($ty)*>();
             }
         }
 
-        assert_is_serialize!(u8);
-        assert_is_serialize!(u16);
-        assert_is_serialize!(u32);
-        assert_is_serialize!(u64);
+        assert_is_visit!(u8);
+        assert_is_visit!(u16);
+        assert_is_visit!(u32);
+        assert_is_visit!(u64);
 
-        assert_is_serialize!(i8);
-        assert_is_serialize!(i16);
-        assert_is_serialize!(i32);
-        assert_is_serialize!(i64);
+        assert_is_visit!(i8);
+        assert_is_visit!(i16);
+        assert_is_visit!(i32);
+        assert_is_visit!(i64);
 
-        assert_is_serialize!(f32);
-        assert_is_serialize!(f64);
+        assert_is_visit!(f32);
+        assert_is_visit!(f64);
 
-        assert_is_serialize!(bool);
+        assert_is_visit!(bool);
 
-        assert_is_serialize!(char);
-        assert_is_serialize!(str);
+        assert_is_visit!(char);
+        assert_is_visit!(str);
         #[cfg(feature = "std")]
-        assert_is_serialize!(String);
+        assert_is_visit!(String);
 
-        assert_is_serialize!([u8]);
+        assert_is_visit!([u8]);
         #[cfg(feature = "std")]
-        assert_is_serialize!(Vec<u8>);
+        assert_is_visit!(Vec<u8>);
     }
 
     #[derive(PartialEq, Debug)]
@@ -409,60 +483,60 @@ mod tests {
         Char(char),
         Str(&'a str),
         Bytes(&'a [u8]),
-        Unsupported,
+        Args,
     }
 
-    // `&dyn ser::Serialize` should impl `serde::Serialize`
-    fn assert_serialize(v: &dyn Serialize, token: Token) {
-        struct TestSerializer<'a>(Token<'a>);
+    // `&dyn ser::Serialize` should impl `Serialize`
+    fn assert_visit(v: &dyn Visit, token: Token) {
+        struct TestVisitor<'a>(Token<'a>);
 
-        impl<'a> Serializer for TestSerializer<'a> {
-            fn serialize_i64(&mut self, v: i64) {
+        impl<'a> Visitor for TestVisitor<'a> {
+            fn visit_i64(&mut self, v: i64) {
                 assert_eq!(self.0, Token::I64(v));
             }
             
-            fn serialize_u64(&mut self, v: u64) {
+            fn visit_u64(&mut self, v: u64) {
                 assert_eq!(self.0, Token::U64(v));
             }
 
-            fn serialize_f64(&mut self, v: f64) {
+            fn visit_f64(&mut self, v: f64) {
                 assert_eq!(self.0, Token::F64(v));
             }
 
-            fn serialize_bool(&mut self, v: bool) {
+            fn visit_bool(&mut self, v: bool) {
                 assert_eq!(self.0, Token::Bool(v));
             }
 
-            fn serialize_char(&mut self, v: char) {
+            fn visit_char(&mut self, v: char) {
                 assert_eq!(self.0, Token::Char(v));
             }
 
-            fn serialize_str(&mut self, v: &str) {
+            fn visit_str(&mut self, v: &str) {
                 assert_eq!(self.0, Token::Str(v));
             }
 
-            fn serialize_bytes(&mut self, v: &[u8]) {
+            fn visit_bytes(&mut self, v: &[u8]) {
                 assert_eq!(self.0, Token::Bytes(v));
             }
 
-            fn unsupported(&mut self) {
-                assert_eq!(self.0, Token::Unsupported);
+            fn visit_args(&mut self, _: &fmt::Arguments) {
+                assert_eq!(self.0, Token::Args);
             }
         }
 
-        v.serialize(&mut TestSerializer(token));
+        v.visit(&mut TestVisitor(token));
     }
 
     #[test]
-    fn serialize_simple() {
-        assert_serialize(&1u8, Token::U64(1u64));
-        assert_serialize(&true, Token::Bool(true));
-        assert_serialize(&"a string", Token::Str("a string"));
+    fn visit_simple() {
+        assert_visit(&1u8, Token::U64(1u64));
+        assert_visit(&true, Token::Bool(true));
+        assert_visit(&"a string", Token::Str("a string"));
     }
 
     #[test]
     #[cfg(feature = "serde_interop")]
-    fn serialize_unsupported() {
+    fn visit_unsupported_as_args() {
         use serde_json::json;
 
         let v = json!({
@@ -470,7 +544,7 @@ mod tests {
             "name": "alice",
         });
 
-        assert_serialize(&v, Token::Unsupported);
+        assert_visit(&v, Token::Args);
     }
 
     #[cfg(feature = "serde_interop")]
@@ -479,26 +553,26 @@ mod tests {
         use serde_test::{Token, assert_ser_tokens};
         use serde_json::json;
 
-        // `&dyn ser::Serialize` should impl `serde::Serialize`
-        fn assert_serialize(v: &dyn Serialize, tokens: &[Token]) {
+        // `&dyn ser::Serialize` should impl `Serialize`
+        fn assert_visit(v: &dyn Visit, tokens: &[Token]) {
             assert_ser_tokens(&v, tokens);
         }
 
         #[test]
-        fn serialize_simple() {
-            assert_serialize(&1u8, &[Token::U8(1u8)]);
-            assert_serialize(&true, &[Token::Bool(true)]);
-            assert_serialize(&"a string", &[Token::Str("a string")]);
+        fn visit_simple() {
+            assert_visit(&1u8, &[Token::U8(1u8)]);
+            assert_visit(&true, &[Token::Bool(true)]);
+            assert_visit(&"a string", &[Token::Str("a string")]);
         }
 
         #[test]
-        fn serialize_complex() {
+        fn visit_complex() {
             let v = json!({
                 "id": 123,
                 "name": "alice",
             });
 
-            assert_serialize(&v, &[
+            assert_visit(&v, &[
                 Token::Map { len: Some(2) },
                 Token::Str("id"),
                 Token::U64(123),
