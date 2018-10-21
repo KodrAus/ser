@@ -63,110 +63,121 @@ pub trait Visit: imp::VisitPrivate {
     fn visit(&self, visitor: &mut dyn Visitor);
 }
 
+trait EnsureVisit: Visit {}
+
+macro_rules! ensure_impl_visit {
+    ($($ty:ty { $($serialize:tt)* })*) => {
+        $(
+            #[cfg(feature = "serde_interop")]
+            impl EnsureVisit for $ty {}
+
+            #[cfg(not(feature = "serde_interop"))]
+            impl Visit for $ty {
+                $($serialize)*
+            }
+
+            #[cfg(not(feature = "serde_interop"))]
+            impl imp::VisitPrivate for $ty {}
+        )*
+    }
+}
+
+ensure_impl_visit! {
+    u8 {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_u64(*self as u64)
+        }
+    }
+    u16 {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_u64(*self as u64)
+        }
+    }
+    u32 {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_u64(*self as u64)
+        }
+    }
+    u64 {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_u64(*self)
+        }
+    }
+
+    i8 {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_i64(*self as i64)
+        }
+    }
+    i16 {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_i64(*self as i64)
+        }
+    }
+    i32 {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_i64(*self as i64)
+        }
+    }
+    i64 {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_i64(*self)
+        }
+    }
+
+    f32 {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_f64(*self as f64)
+        }
+    }
+    f64 {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_f64(*self)
+        }
+    }
+
+    char {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_char(*self)
+        }
+    }
+    bool {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_bool(*self)
+        }
+    }
+    str {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_str(self)
+        }
+    }
+    [u8] {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_bytes(self)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+ensure_impl_visit! {
+    String {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_str(&*self)
+        }
+    }
+    Vec<u8> {
+        fn visit(&self, visitor: &mut dyn Visitor) {
+            visitor.visit_bytes(&*self)
+        }
+    }
+}
+
 #[cfg(not(feature = "serde_interop"))]
 mod imp {
     use super::*;
 
     #[doc(hidden)]
     pub trait VisitPrivate: fmt::Debug {}
-
-    macro_rules! visit_primitive {
-        ($($ty:ty: { $($serialize:tt)* })*) => {
-            $(
-                impl Visit for $ty {
-                    $($serialize)*
-                }
-
-                impl VisitPrivate for $ty {}
-            )*
-        }
-    }
-
-    visit_primitive!(
-        u8: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_u64(*self as u64)
-            }
-        }
-
-        u16: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_u64(*self as u64)
-            }
-        }
-
-        u32: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_u64(*self as u64)
-            }
-        }
-
-        u64: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_u64(*self)
-            }
-        }
-
-        i8: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_i64(*self as i64)
-            }
-        }
-
-        i16: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_i64(*self as i64)
-            }
-        }
-
-        i32: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_i64(*self as i64)
-            }
-        }
-
-        i64: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_i64(*self)
-            }
-        }
-
-        f32: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_f64(*self as f64)
-            }
-        }
-
-        f64: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_f64(*self)
-            }
-        }
-
-        char: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_char(*self)
-            }
-        }
-
-        bool: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_bool(*self)
-            }
-        }
-
-        str: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_str(self)
-            }
-        }
-
-        [u8]: {
-            fn visit(&self, visitor: &mut dyn Visitor) {
-                visitor.visit_bytes(self)
-            }
-        }
-    );
 
     impl<'a, T: ?Sized> Visit for &'a T
     where
@@ -180,18 +191,8 @@ mod imp {
     impl<'a, T: ?Sized> VisitPrivate for &'a T
     where
         T: Visit,
-    {}
-
-    /*
-    #[cfg(feature = "std")]
-    visit_primitive!(String, fn visit(&self, visitor: &mut dyn Visitor) {
-        visitor.visit_str(&*self)
-    });
-    #[cfg(feature = "std")]
-    visit_primitive!(Vec<u8>, fn visit(&self, visitor: &mut dyn Visitor) {
-        visitor.visit_bytes(&*self)
-    });
-    */
+    {
+    }
 }
 
 #[cfg(feature = "serde_interop")]
@@ -437,42 +438,6 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use crate::*;
-
-    #[test]
-    fn types_implement_visit() {
-        fn is_visit<T: Visit + ?Sized>() {}
-
-        macro_rules! assert_is_visit {
-            ($($ty:tt)*) => {
-                is_visit::<$($ty)*>();
-                is_visit::<&$($ty)*>();
-            }
-        }
-
-        assert_is_visit!(u8);
-        assert_is_visit!(u16);
-        assert_is_visit!(u32);
-        assert_is_visit!(u64);
-
-        assert_is_visit!(i8);
-        assert_is_visit!(i16);
-        assert_is_visit!(i32);
-        assert_is_visit!(i64);
-
-        assert_is_visit!(f32);
-        assert_is_visit!(f64);
-
-        assert_is_visit!(bool);
-
-        assert_is_visit!(char);
-        assert_is_visit!(str);
-        #[cfg(feature = "std")]
-        assert_is_visit!(String);
-
-        assert_is_visit!([u8]);
-        #[cfg(feature = "std")]
-        assert_is_visit!(Vec<u8>);
-    }
 
     #[derive(PartialEq, Debug)]
     enum Token<'a> {
